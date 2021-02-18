@@ -1,5 +1,5 @@
 import "./styles.css";
-import React from "react";
+import React, { useState } from "react";
 import ReactDOM from "react-dom";
 import { useMachine } from "@xstate/react";
 import { inspect } from "@xstate/inspect";
@@ -8,7 +8,14 @@ import { of } from "rxjs";
 
 import tetrodb from "./tetrodb.json";
 import { boardMachine } from "./machine";
-import { upPress$, leftPress$, spacePress$, rightPress$ } from "./observables";
+import {
+  upPress$,
+  leftPress$,
+  spacePress$,
+  rightPress$,
+  interval$
+} from "./observables";
+import { takeWhile } from "rxjs/operators";
 
 inspect({
   url: "https://statecharts.io/inspect",
@@ -23,25 +30,35 @@ function getTetro() {
 
   return tetrodb[tetro];
 }
+const init$ = of(getTetro());
 
 function App() {
-  const [currentState, send] = useMachine(boardMachine, { devTools: true });
+  const [count, setCount] = useState(0);
+  const [currentState, send] = useMachine(boardMachine, { devTools: false });
   const appRef = useRef(null);
 
   useEffect(() => {
-    of(getTetro()).subscribe((tetro) => send("INIT", { tetro }));
-  }, [send]);
+    const observers = [
+      interval$.subscribe(() => setCount(0)),
+      upPress$.pipe(takeWhile(() => count <= 3)).subscribe(() => {
+        send("START_ROTATING");
+        setCount((count) => count + 1);
+      })
+    ];
+
+    return () => observers.forEach((sub) => sub.unsubscribe());
+  }, [send, count]);
 
   useEffect(() => {
     const subs = [
+      init$.subscribe((tetro) => send("INIT", { tetro })),
       spacePress$.subscribe(() => send("DROP")),
-      upPress$.subscribe(() => send("START_ROTATING")),
       rightPress$.subscribe(() => send("MOVE_RIGHT")),
       leftPress$.subscribe(() => send("MOVE_LEFT"))
     ];
 
     return () => subs.forEach((sub) => sub.unsubscribe());
-  }, [send, currentState]);
+  }, [send]);
 
   return (
     <div
